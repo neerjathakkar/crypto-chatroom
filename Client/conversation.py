@@ -150,7 +150,8 @@ class Conversation:
 		# example is base64 decoding, extend this with any crypto processing of your protocol
 
 
-        len_mac = msg_raw[:2]
+        len_msg = msg_raw[:2]
+        int_len_msg = int(len_msg)
         iv = msg_raw[2:18]
 
         # intialize counter with the value read
@@ -163,22 +164,20 @@ class Conversation:
 
         # time stamp is 26 characters
         timestamp = decrypted[0:26]
-        print timestamp
         # message id is 11 characters
         msg_id = decrypted[26:37]
-        print msg_id
         # mac is the last 16 characters
         # msg is everything in between
 
-        msg = decrypted[37:-16]
-        print msg
-        rec_mac = decrypted[-16:]
-
+        msg = decrypted[37:37 + int_len_msg]
+        # print "parsed message:" + msg
+        rec_mac = decrypted[37 + int_len_msg:]
+        # print "received mac: " + rec_mac
 
 
         # generate mac from message
 
-        # pad msg if needed, padding sheme is x01 x00 ... x00
+        #pad msg if needed, padding sheme is x01 x00 ... x00
 
         p_length = AES.block_size - (len(msg)) % AES.block_size
 
@@ -197,24 +196,19 @@ class Conversation:
 
         # create AES cipher object
         cipher = AES.new(keystring, AES.MODE_CBC, iv)
-
         # compute CBC MAC value
         mac = cipher.encrypt(msg)
 
+        # print "generated mac: " + mac
+
         accepted = True
-        print "length of mac received: " + str(len(rec_mac))
-        print rec_mac
-        print "length of mac generated: " + str(len(mac))
-        print mac
+
         # check if received mac = mac generated
         i = 0
         while i < len(rec_mac) - 1:
-            print "checking mac"
             if mac[i] != rec_mac[i]:
                 accepted = False
             i = i + 1
-        print "done checking mac"
-        print accepted
 
         if accepted:
             # print message and add it to the list of printed messages
@@ -271,12 +265,14 @@ class Conversation:
 
         # create AES cipher object
         cipher = AES.new(keystring, AES.MODE_CBC, iv)
-
+        # print "message about to make mac to send with: " + msg
         # compute CBC MAC value
         mac = cipher.encrypt(msg)
 
-        len_mac = str(len(mac))
-        print len_mac
+        # print "mac created: " + mac
+        # print "length of mac: " + str(len(mac))
+
+        len_msg = str(len(msg))
         # initialize CTR mode, encrypt everything
         ctr = Counter.new(128, initial_value=long(iv.encode('hex'), 16))
         ctr_cipher = AES.new(keystring, AES.MODE_CTR, counter=ctr)
@@ -287,7 +283,7 @@ class Conversation:
 
 
         # get final message
-        encoded_msg = len_mac + iv + encrypted
+        encoded_msg = len_msg + iv + encrypted
 
         # post the message to the conversation
         self.manager.post_message_to_conversation(encoded_msg)
