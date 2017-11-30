@@ -1,3 +1,8 @@
+import datetime
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from Crypto.Util import Counter
+
 from message import Message
 import base64
 from time import sleep
@@ -106,7 +111,25 @@ class Conversation:
         # you can do that with self.process_outgoing_message("...") or whatever you may want to send here...
 
         # Since there is no crypto in the current version, no preparation is needed, so do nothing
-        # replace this with anything needed for your key exchange 
+        # replace this with anything needed for your key exchange
+
+        # random 256 bit key
+        # master_key = get_random_bytes(32)
+        # list_of_users = self.manager.get_other_users()
+        # for user in list_of_users:
+        #     self.process_outgoing_message("FIRST" + master_key, False)
+        #
+
+        # generate key pairs for each member
+
+        #for each other member
+        # generate public/private key pair
+        #
+        # send message containing K encrypted with their public key
+
+
+
+
         pass
 
 
@@ -121,15 +144,88 @@ class Conversation:
         :return: None
         '''
 
+        keystring = "abcdefghijklmnop"
+
         # process message here
 		# example is base64 decoding, extend this with any crypto processing of your protocol
-        decoded_msg = base64.decodestring(msg_raw)
 
-        # print message and add it to the list of printed messages
-        self.print_message(
-            msg_raw=decoded_msg,
-            owner_str=owner_str
-        )
+
+        len_mac = msg_raw[:2]
+        iv = msg_raw[2:18]
+
+        # intialize counter with the value read
+        ctr = Counter.new(128, initial_value=long(iv.encode('hex'), 16))
+
+        # create AES cipher object
+        cipher = AES.new(keystring, AES.MODE_CTR, counter=ctr)
+
+        decrypted = cipher.decrypt(msg_raw[18:])
+
+        # time stamp is 26 characters
+        timestamp = decrypted[0:26]
+        print timestamp
+        # message id is 11 characters
+        msg_id = decrypted[26:37]
+        print msg_id
+        # mac is the last 16 characters
+        # msg is everything in between
+
+        msg = decrypted[37:-16]
+        print msg
+        rec_mac = decrypted[-16:]
+
+
+
+        # generate mac from message
+
+        # pad msg if needed, padding sheme is x01 x00 ... x00
+
+        p_length = AES.block_size - (len(msg)) % AES.block_size
+
+        if p_length >= 1:
+            msg = msg + chr(1)
+            p_length -= 1
+        while p_length > 0:
+            msg = msg + chr(0)
+            p_length -= 1
+
+        # initialize iv as full block of x00s
+
+        iv = ""
+        while len(iv) < AES.block_size:
+            iv = iv + chr(0)
+
+        # create AES cipher object
+        cipher = AES.new(keystring, AES.MODE_CBC, iv)
+
+        # compute CBC MAC value
+        mac = cipher.encrypt(msg)
+
+        accepted = True
+        print "length of mac received: " + str(len(rec_mac))
+        print rec_mac
+        print "length of mac generated: " + str(len(mac))
+        print mac
+        # check if received mac = mac generated
+        i = 0
+        while i < len(rec_mac) - 1:
+            print "checking mac"
+            if mac[i] != rec_mac[i]:
+                accepted = False
+            i = i + 1
+        print "done checking mac"
+        print accepted
+
+        if accepted:
+            # print message and add it to the list of printed messages
+            self.print_message (
+                msg_raw=msg,
+                owner_str=owner_str
+            )
+
+        else:
+            print "mac was rejected for message: " + msg
+
 
     def process_outgoing_message(self, msg_raw, originates_from_console=False):
         '''
@@ -138,6 +234,7 @@ class Conversation:
         :param msg_raw: raw message
         :return: message to be sent to the server
         '''
+        keystring = "abcdefghijklmnop"
 
         # if the message has been typed into the console, record it, so it is never printed again during chatting
         if originates_from_console == True:
@@ -150,10 +247,52 @@ class Conversation:
 
         # process outgoing message here
 		# example is base64 encoding, extend this with any crypto processing of your protocol
-        encoded_msg = base64.encodestring(msg_raw)
+        # pad msg if needed, padding sheme is x01 x00 ... x00
+        msg = msg_raw
+
+        msg_id = get_random_bytes(11)
+        timestamp = datetime.datetime.now()
+        header = str(timestamp) + msg_id
+
+        p_length = AES.block_size - (len(msg)) % AES.block_size
+
+        if p_length >= 1:
+            msg = msg + chr(1)
+            p_length -= 1
+        while p_length > 0:
+            msg = msg + chr(0)
+            p_length -= 1
+
+        # initialize iv as full block of x00s
+
+        iv = ""
+        while len(iv) < AES.block_size:
+            iv = iv + chr(0)
+
+        # create AES cipher object
+        cipher = AES.new(keystring, AES.MODE_CBC, iv)
+
+        # compute CBC MAC value
+        mac = cipher.encrypt(msg)
+
+        len_mac = str(len(mac))
+        print len_mac
+        # initialize CTR mode, encrypt everything
+        ctr = Counter.new(128, initial_value=long(iv.encode('hex'), 16))
+        ctr_cipher = AES.new(keystring, AES.MODE_CTR, counter=ctr)
+        total_msg = header+ msg + mac
+        encrypted = ctr_cipher.encrypt(total_msg)
+
+        # format message header
+
+
+        # get final message
+        encoded_msg = len_mac + iv + encrypted
 
         # post the message to the conversation
         self.manager.post_message_to_conversation(encoded_msg)
+
+        return encoded_msg
 
     def print_message(self, msg_raw, owner_str):
         '''
