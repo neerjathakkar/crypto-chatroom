@@ -144,15 +144,29 @@ class Conversation:
         :return: None
         '''
 
+        print msg_id
+
         keystring = "abcdefghijklmnop"
-
-        # process message here
-		# example is base64 decoding, extend this with any crypto processing of your protocol
-
-
-        len_msg = msg_raw[:2]
+        #
+        # # process message here
+        # # example is base64 decoding, extend this with any crypto processing of your protocol
+        #
+        # len_msg + header + ("0" * AES.block_size) + encrypted + mac
+        len_msg = msg_raw[:16]
         int_len_msg = int(len_msg)
-        iv = msg_raw[2:18]
+        print "len message = " + len_msg
+        timestamp = msg_raw[16:42]
+        print "timestamp: " + timestamp
+        msg_id = msg_raw[42:53]
+        print "msg id: " + msg_id
+        iv = msg_raw[53: 53+ AES.block_size]
+        print "counter: " + iv
+
+
+        enc_msg = msg_raw[53+ AES.block_size: 53+ AES.block_size + int_len_msg]
+        print "encrypted msg : " + enc_msg
+        rec_mac = msg_raw[53+ AES.block_size + int_len_msg:]
+        print "mac: " + rec_mac
 
         # intialize counter with the value read
         ctr = Counter.new(128, initial_value=long(iv.encode('hex'), 16))
@@ -160,52 +174,51 @@ class Conversation:
         # create AES cipher object
         cipher = AES.new(keystring, AES.MODE_CTR, counter=ctr)
 
-        decrypted = cipher.decrypt(msg_raw[18:])
-
-        # time stamp is 26 characters
-        timestamp = decrypted[0:26]
-        # message id is 11 characters
-        msg_id = decrypted[26:37]
-        # mac is the last 16 characters
-        # msg is everything in between
-
-        msg = decrypted[37:37 + int_len_msg]
-        # print "parsed message:" + msg
-        rec_mac = decrypted[37 + int_len_msg:]
-        # print "received mac: " + rec_mac
-
+        decrypted_msg = cipher.decrypt(enc_msg)
+        print "decrypted: " + decrypted_msg
 
         # generate mac from message
 
         #pad msg if needed, padding sheme is x01 x00 ... x00
 
-        p_length = AES.block_size - (len(msg)) % AES.block_size
+        header = timestamp + msg_id
+
+        total_data = header + decrypted_msg
+
+        p_length = AES.block_size - (len(total_data)) % AES.block_size
 
         if p_length >= 1:
-            msg = msg + chr(1)
+            total_data = total_data + chr(1)
             p_length -= 1
         while p_length > 0:
-            msg = msg + chr(0)
+            total_data = total_data + chr(0)
             p_length -= 1
 
-        # initialize iv as full block of x00s
+        # append message blocks X1...n and compute the MAC (as last block of CBC encryption of A|X)
 
-        iv = ""
-        while len(iv) < AES.block_size:
-            iv = iv + chr(0)
+        # create AES CBC cipher object
+        cbc_cipher = AES.new(keystring, AES.MODE_CBC, iv)
+        total_encrypted_data = cbc_cipher.encrypt(total_data)
 
-        # create AES cipher object
-        cipher = AES.new(keystring, AES.MODE_CBC, iv)
-        # compute CBC MAC value
-        mac = cipher.encrypt(msg)
+        mac = total_encrypted_data[-1 * AES.block_size:]
+        print "mac should be last block: "
+        print mac
+        # this should be further encrypted by XORing E_K(N|Ctr0) to it
+        # (where E_K() is ECB encryption of the single block N|ctr(0)
+        ecb_cipher = AES.new(keystring, AES.MODE_ECB)
 
-        # print "generated mac: " + mac
+        enc_nonce = ecb_cipher.encrypt(iv)
+
+        mac = self.xor_two_str(mac, enc_nonce)
+
+        print "xored mac: " + mac
 
         accepted = True
 
         # check if received mac = mac generated
         i = 0
         while i < len(rec_mac) - 1:
+            print "checking mac"
             if mac[i] != rec_mac[i]:
                 accepted = False
             i = i + 1
@@ -213,15 +226,28 @@ class Conversation:
         if accepted:
             # print message and add it to the list of printed messages
             self.print_message (
-                msg_raw=msg,
+                msg_raw=decrypted_msg,
                 owner_str=owner_str
             )
 
         else:
-            print "mac was rejected for message: " + msg
+            print "mac was rejected for message: " + decrypted_msg
 
 
     def process_outgoing_message(self, msg_raw, originates_from_console=False):
+
+
+        # first initialize N = random and ctr = 0
+        # then put timestamp and other stuff we dont want to encrypt in blocks A1...m
+
+
+        nonce = get_random_bytes(AES.block_size)
+        ctr = 0
+        #iv = str(nonce) + str(ctr)
+        iv = "0" * AES.block_size
+
+
+
         '''
         Process an outgoing message before Base64 encoding
 
@@ -242,48 +268,80 @@ class Conversation:
         # process outgoing message here
 		# example is base64 encoding, extend this with any crypto processing of your protocol
         # pad msg if needed, padding sheme is x01 x00 ... x00
-        msg = msg_raw
 
+        msg = msg_raw
         msg_id = get_random_bytes(11)
+        print "msg id: " + msg_id
         timestamp = datetime.datetime.now()
+        print "timestamp: " + str(timestamp)
         header = str(timestamp) + msg_id
 
-        p_length = AES.block_size - (len(msg)) % AES.block_size
+        total_data = header + msg
+
+        print "header: " + header
+
+        p_length = AES.block_size - (len(total_data)) % AES.block_size
 
         if p_length >= 1:
-            msg = msg + chr(1)
+            total_data = total_data + chr(1)
             p_length -= 1
         while p_length > 0:
-            msg = msg + chr(0)
+            total_data = total_data + chr(0)
             p_length -= 1
 
-        # initialize iv as full block of x00s
 
-        iv = ""
-        while len(iv) < AES.block_size:
-            iv = iv + chr(0)
+        # append message blocks X1...n and compute the MAC (as last block of CBC encryption of A|X)
 
-        # create AES cipher object
-        cipher = AES.new(keystring, AES.MODE_CBC, iv)
-        # print "message about to make mac to send with: " + msg
-        # compute CBC MAC value
-        mac = cipher.encrypt(msg)
 
+
+        print "A|X: " + total_data
+
+        # create AES CBC cipher object
+        cbc_cipher = AES.new(keystring, AES.MODE_CBC, "0" * AES.block_size)
+        total_encrypted_data = cbc_cipher.encrypt(total_data)
+        print "Enc(A|X): "
+        print total_encrypted_data
+        mac = total_encrypted_data[-1 * AES.block_size:]
+        print "mac should be last block: "
+        print mac
+        # this should be further encrypted by XORing E_K(N|Ctr0) to it
+        # (where E_K() is ECB encryption of the single block N|ctr(0)
+        ecb_cipher = AES.new(keystring, AES.MODE_ECB)
+
+        enc_nonce = ecb_cipher.encrypt("0" * AES.block_size)
+
+        mac = self.xor_two_str(mac, enc_nonce)
+
+        print "xored mac: " + mac
         # print "mac created: " + mac
         # print "length of mac: " + str(len(mac))
 
         len_msg = str(len(msg))
-        # initialize CTR mode, encrypt everything
+        while len(len_msg) < 16:
+            len_msg = "0" + len_msg
+
+        print "len msg = " + len_msg
+
+        # Finally encrypt in CTR mode the blocks X1...n and append the encrypted MAC to get the final output
+
+        # initialize CTR mode, encrypt message
         ctr = Counter.new(128, initial_value=long(iv.encode('hex'), 16))
         ctr_cipher = AES.new(keystring, AES.MODE_CTR, counter=ctr)
-        total_msg = header+ msg + mac
-        encrypted = ctr_cipher.encrypt(total_msg)
+        total_msg = header + msg + mac
+
+        encrypted = ctr_cipher.encrypt(msg)
+
+        print "encrypted message: " + encrypted
+
+        print "length of msg enc: " + str(len(encrypted))
 
         # format message header
 
 
         # get final message
-        encoded_msg = len_msg + iv + encrypted
+        encoded_msg = len_msg + header + ("0" * AES.block_size) + encrypted + mac
+
+        print "message to send: " + encoded_msg
 
         # post the message to the conversation
         self.manager.post_message_to_conversation(encoded_msg)
@@ -328,3 +386,6 @@ class Conversation:
         :return: number
         '''
         return len(self.all_messages)
+
+    def xor_two_str(self, a, b):
+        return ''.join([hex(ord(a[i % len(a)]) ^ ord(b[i % (len(b))]))[2:] for i in range(max(len(a), len(b)))])
