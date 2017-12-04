@@ -121,9 +121,9 @@ class Conversation:
 
         # random 256 bit key
         # master_key = get_random_bytes(32)
-        # list_of_users = self.manager.get_other_users()
-        # for user in list_of_users:
-        #     self.process_outgoing_message("FIRST" + master_key, False)
+        list_of_users = self.manager.get_other_users()
+        for user in list_of_users:
+            self.process_outgoing_message("setup convo message")
         #
 
         # generate key pairs for each member
