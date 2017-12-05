@@ -123,7 +123,7 @@ class Conversation:
         # master_key = get_random_bytes(32)
         list_of_users = self.manager.get_other_users()
         for user in list_of_users:
-            self.process_outgoing_message("setup convo message")
+            self.process_outgoing_message("hey")
         #
 
         # generate key pairs for each member
@@ -168,13 +168,14 @@ class Conversation:
             # len_msg + header + ("0" * AES.block_size) + encrypted + mac
             len_msg = msg_raw[:16]
             int_len_msg = int(len_msg)
-            # print "len message = " + len_msg
+            print "len message = " + len_msg
             timestamp = msg_raw[16:42]
-            # print "timestamp: " + timestamp
+            print "timestamp: " + timestamp
             msg_id = msg_raw[42:53]
-            # print "msg id: " + msg_id
-            iv = msg_raw[53: 53+ AES.block_size]
-            # print "counter: " + iv
+            print "msg id: " + msg_id
+            # iv = msg_raw[53: 53+ AES.block_size]
+            iv = "0" * AES.block_size
+            print "iv: " + iv
             # print str(self.recent_msg_ids)
             if msg_id in self.recent_msg_ids:
 
@@ -194,7 +195,7 @@ class Conversation:
             enc_msg = msg_raw[53+ AES.block_size: 53+ AES.block_size + int_len_msg]
             # print "encrypted msg : " + enc_msg
             rec_mac = msg_raw[53+ AES.block_size + int_len_msg:]
-            # print "mac: " + rec_mac
+            print " rec mac: " + rec_mac
 
             # intialize counter with the value read
             ctr = Counter.new(128, initial_value=long(iv.encode('hex'), 16))
@@ -229,8 +230,8 @@ class Conversation:
             total_encrypted_data = cbc_cipher.encrypt(total_data)
 
             mac = total_encrypted_data[-1 * AES.block_size:]
-            # print "mac should be last block: "
-            # print mac
+            print "mac should be last block: "
+            print mac
             # this should be further encrypted by XORing E_K(N|Ctr0) to it
             # (where E_K() is ECB encryption of the single block N|ctr(0)
             ecb_cipher = AES.new(keystring, AES.MODE_ECB)
@@ -239,14 +240,13 @@ class Conversation:
 
             mac = self.xor_two_str(mac, enc_nonce)
 
-            # print "xored mac: " + mac
+            print "xored mac: " + mac
 
             accepted = True
 
             # check if received mac = mac generated
             i = 0
             while i < len(rec_mac) - 1:
-                # print "checking mac"
                 if mac[i] != rec_mac[i]:
                     accepted = False
                 i = i + 1
