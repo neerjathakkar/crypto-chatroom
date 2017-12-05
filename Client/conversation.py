@@ -44,6 +44,7 @@ class Conversation:
         self.recent_msg_ids = {}
         self.public_keys = {}
         self.conversation_key = ""
+        self.my_login_time = datetime.datetime.now()
 
     def append_msg_to_process(self, msg_json):
         '''
@@ -145,7 +146,7 @@ class Conversation:
             pub_key =  RSA.importKey(public_key_file.read())
             self.public_keys[user] = pub_key
 
-        timestamp = str(datetime.datetime.now())
+        timestamp = str(self.my_login_time)
 
         for user in user_list:
 
@@ -257,7 +258,7 @@ class Conversation:
             cipher = AES.new(keystring, AES.MODE_CTR, counter=ctr)
 
             decrypted_msg = cipher.decrypt(enc_msg)
-            # print "decrypted: " + decrypted_msg
+            print "decrypted: " + decrypted_msg
 
             # generate mac from message
 
@@ -315,6 +316,12 @@ class Conversation:
                 print "mac was rejected for message: " + decrypted_msg
 
         elif chars == SETUP:
+
+            timestamp = msg_raw[:26]
+            if self.is_time_earlier(timestamp, str(self.my_login_time)):
+                return
+
+
             print "processing setup message"
             print msg_raw
             self.key_messages.append(msg_id)
@@ -382,6 +389,8 @@ class Conversation:
             # first initialize N = random and ctr = 0
             # then put timestamp and other stuff we dont want to encrypt in blocks A1...m
 
+            print "processing outgoing message from " + str(self.manager.user_name) + ": " + msg_raw
+            print "using session key " + self.conversation_key
             nonce = get_random_bytes(8)
             print "generated nonce: " + str(nonce)
 
@@ -400,7 +409,8 @@ class Conversation:
             msg = msg_raw
             msg_id = get_random_bytes(11)
             # print "msg id: " + msg_id
-            timestamp = datetime.datetime.now()
+            timestamp = str(datetime.datetime.now())
+
             # print "timestamp: " + str(timestamp)
             header = str(timestamp) + msg_id
 
@@ -421,16 +431,16 @@ class Conversation:
 
 
 
-            # print "A|X: " + total_data
+            print "A|X: " + total_data
 
             # create AES CBC cipher object
             cbc_cipher = AES.new(keystring, AES.MODE_CBC, "0" * AES.block_size)
             total_encrypted_data = cbc_cipher.encrypt(total_data)
-            # print "Enc(A|X): "
-            # print total_encrypted_data
+            print "Enc(A|X): "
+            print total_encrypted_data
             mac = total_encrypted_data[-1 * AES.block_size:]
-            # print "mac should be last block: "
-            # print mac
+            print "mac should be last block: "
+            print mac
             # this should be further encrypted by XORing E_K(N|Ctr0) to it
             # (where E_K() is ECB encryption of the single block N|ctr(0)
             ecb_cipher = AES.new(keystring, AES.MODE_ECB)
@@ -439,7 +449,7 @@ class Conversation:
 
             mac = self.xor_two_str(mac, enc_nonce)
 
-            # print "xored mac: " + mac
+            print "xored mac: " + mac
             # print "mac created: " + mac
             # print "length of mac: " + str(len(mac))
 
@@ -468,7 +478,7 @@ class Conversation:
             print "message length is: " + str(len(msg))
             encrypted = ctr_cipher.encrypt(msg)
 
-            # print "encrypted message: " + encrypted
+            print "encrypted message: " + encrypted
             #
             # print "length of msg enc: " + str(len(encrypted))
 
@@ -479,7 +489,7 @@ class Conversation:
 
             encoded_msg = NORMAL + len_msg + header + nonce + encrypted + mac
 
-            # print "message to send: " + encoded_msg
+            print "message to send: " + encoded_msg
 
             msg_to_send = encoded_msg
 
@@ -540,3 +550,14 @@ class Conversation:
         h.update(data)
         #  return data
         return h.digest()
+
+
+    # returns true if t1 is earlier than t2
+    # returns false otherwise
+    def is_time_earlier(self, t1, t2):
+        timestamp1 = datetime.datetime.strptime(t1, "%Y-%m-%d %H:%M:%S.%f")
+        timestamp2 = datetime.datetime.strptime(t2, "%Y-%m-%d %H:%M:%S.%f")
+
+        # max = most recent
+        return max(timestamp1, timestamp2) == timestamp2
+
