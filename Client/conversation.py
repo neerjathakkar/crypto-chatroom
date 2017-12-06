@@ -214,9 +214,15 @@ class Conversation:
             # Get message id
             msg_id = msg_raw[42:53]
 
+
+            # POSSIBLE ATTACK 1:
+            # self.recent_msg_ids["Replay ID"] = "replay time"
+            # msg_id = "Replay ID"
+
             # Check for replay:
             if msg_id in self.recent_msg_ids:
                 # message rejected, it is replayed
+                print "Detected replay"
                 return
             else:
                 # add message id to list of accepted message ids
@@ -225,13 +231,13 @@ class Conversation:
             header = timestamp + msg_id
 
             # Get nonce
-            nonce = msg_raw[53: 53+ 8]
+            nonce = msg_raw[53: 61]
 
             # Obtain encrypted message
-            enc_msg = msg_raw[53+ 8: 53+ 8 + int_len_msg]
+            enc_msg = msg_raw[61: 61 + int_len_msg]
 
             # Obtain MAC value
-            rec_mac = msg_raw[53+ 8 + int_len_msg:]
+            rec_mac = msg_raw[61 + int_len_msg:]
 
             # Initialize counter with the nonce value read
             iv = "0" * AES.block_size
@@ -242,6 +248,9 @@ class Conversation:
 
             # Decrypt the message
             decrypted_msg = cipher.decrypt(enc_msg)
+
+            # POSSIBLE ATTACK 2 (uncomment line below)
+            # decrypted_msg = decrypted_msg + "added text"
 
             # generate MAC from decrypted message
             # pad msg if needed, padding scheme is x01 x00 ... x00
@@ -275,11 +284,14 @@ class Conversation:
             accepted = True
 
             # check if received MAC = MAC generated
-            i = 0
-            while i < len(rec_mac) - 1:
-                if mac[i] != rec_mac[i]:
-                    accepted = False
-                i = i + 1
+            if len(rec_mac) != len(mac):
+                accepted = False
+            else:
+                i = 0
+                while i < len(rec_mac) - 1:
+                    if mac[i] != rec_mac[i]:
+                        accepted = False
+                    i = i + 1
 
             if accepted:
                 # Print message and add it to the list of printed messages
@@ -290,6 +302,7 @@ class Conversation:
 
             else:
                 # MAC was rejected
+                # print "mac was rejected"
                 return
 
         elif chars == SETUP:
@@ -297,8 +310,13 @@ class Conversation:
 
             timestamp = msg_raw[:26]
 
+            # POSSIBLE TEST (test that key message from before login is invalid now)
+            # timechange = datetime.timedelta(days=1)
+            # timestamp = str(self.my_login_time - timechange)
+
             # Don't process a key message that was sent before we logged in
             if self.is_time_earlier(timestamp, str(self.my_login_time)):
+                # print "Key message timestamp rejected"
                 return
 
             # Add message id to list of key setup messages already processed,
@@ -319,6 +337,10 @@ class Conversation:
                 # Data to sign: (B | Ta | Enc(A|K))
                 cert_data = str(self.manager.user_name) + timestamp + enc_msg
 
+
+                # POSSIBLE ATTACK 4
+                # cert_data = cert_data + "added text"
+
                 h = SHA.new()
                 h.update(self.md5(cert_data))
 
@@ -326,7 +348,12 @@ class Conversation:
                 if verifier.verify(h, signed_data):
                     valid_sig = True
                 else:
+                    # print "Invalid signature"
                     valid_sig = False
+
+                #POSSIBLE ATTACK 4
+                # timechange = datetime.timedelta(days=1)
+                # timestamp = str(self.my_login_time + timechange)
 
                 if valid_sig and self.is_time_earlier(str(self.curr_time), str(timestamp)):
                     # This is a valid key exchange, we can decrypt and obtain session key
@@ -352,6 +379,8 @@ class Conversation:
                     return
                 else:
                     # This is an invalid key exchange
+                    # print "Invalid key exchange message"
+
                     return
 
 
