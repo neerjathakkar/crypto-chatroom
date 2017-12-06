@@ -251,6 +251,7 @@ class ChatManager:
         :return: None
         '''
         global has_requested_messages
+        has_requested_messages = True
         # While the conversation history is being retrieved, postpone message sending
         while has_requested_messages is not True:
             sleep(0.01)
